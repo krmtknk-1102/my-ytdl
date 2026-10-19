@@ -292,7 +292,10 @@ function pollJob(jobId) {
       const warn = j.errors && j.errors.length
         ? `\n<span class="ng">一部うまくいかなかった処理があります:</span>\n${j.errors.map(esc).join("\n")}`
         : "";
-      log(`<span class="ok">✔ 完了</span> ${formatSize(j.size)}${count}\n<a href="${fileUrl}">${esc(j.filename)} を保存</a>　(自動的に保存が始まらない場合はここをクリック)${warn}`);
+      const expires = j.expires
+        ? `\n<span class="muted">${new Date(j.expires * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} まで保存できます(以降は自動で削除されます)</span>`
+        : "";
+      log(`<span class="ok">✔ 完了</span> ${formatSize(j.size)}${count}\n<a href="${fileUrl}">${esc(j.filename)} を保存</a>(自動的に保存が始まらない場合はここをクリック)${expires}${warn}`);
 
       // 保存ボタンを押さなくて済むよう、完了したら自動でダウンロードを開始する
       const a = document.createElement("a");

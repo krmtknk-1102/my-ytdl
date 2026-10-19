@@ -9,6 +9,8 @@ services:
     environment:
       - MAX_CONCURRENT_JOBS=2   # 同時に動かすダウンロード数
       - MAX_QUEUED_JOBS=5       # 順番待ちの上限
+      - RETENTION_HOURS=6       # ダウンロードしたファイルを残す時間
+      - MIN_FREE_GB=5           # 空き容量がこれを下回ったら受け付けない
     restart: unless-stopped
     # ログが増えすぎないよう、10MB × 3ファイルまでに制限
     logging:

@@ -32,7 +32,9 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_PLAYLIST_ITEMS = int(os.getenv("MAX_PLAYLIST_ITEMS", "30"))   # 再生リストの上限本数
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))  # 同時に動かすジョブ数
 MAX_QUEUED_JOBS = int(os.getenv("MAX_QUEUED_JOBS", "5"))          # 順番待ちの上限件数
-RETENTION_HOURS = float(os.getenv("RETENTION_HOURS", "24"))       # ファイルを残す時間
+RETENTION_HOURS = float(os.getenv("RETENTION_HOURS", "6"))        # ファイルを残す時間
+CLEANUP_INTERVAL_MINUTES = float(os.getenv("CLEANUP_INTERVAL_MINUTES", "60"))  # 自動掃除の間隔
+MIN_FREE_GB = float(os.getenv("MIN_FREE_GB", "5"))                # 空きがこれを下回ったら受け付けない
 
 ALLOWED_HOSTS = {
     "youtube.com", "www.youtube.com", "m.youtube.com",
@@ -143,14 +145,47 @@ def parse_time(value: Optional[str], label: str) -> Optional[float]:
     return seconds
 
 
+def remove_path(p: Path):
+    if p.is_dir():
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        p.unlink(missing_ok=True)
+
+
 def cleanup_old_jobs():
-    """保存期間を過ぎたファイルとジョブ情報を消す"""
+    """保存期間を過ぎたファイルとジョブ情報を消す(実行中のジョブには触らない)"""
     limit = time.time() - RETENTION_HOURS * 3600
-    for d in DOWNLOAD_DIR.iterdir():
-        if d.is_dir() and d.stat().st_mtime < limit:
-            shutil.rmtree(d, ignore_errors=True)
-            with jobs_lock:
-                jobs.pop(d.name, None)
+    with jobs_lock:
+        active = {jid for jid, j in jobs.items() if j.get("status") in ACTIVE_STATUSES}
+    removed = 0
+    for p in DOWNLOAD_DIR.iterdir():
+        if p.name in active:
+            continue
+        try:
+            if p.stat().st_mtime < limit:
+                remove_path(p)
+                removed += 1
+        except FileNotFoundError:
+            pass
+    with jobs_lock:
+        for jid in [jid for jid, j in jobs.items()
+                    if jid not in active and j.get("created", 0) < limit]:
+            jobs.pop(jid, None)
+    if removed:
+        log.info("cleanup: removed %d old item(s), free %.1fGB", removed, free_gb())
+
+
+def cleanup_loop():
+    while True:
+        try:
+            cleanup_old_jobs()
+        except Exception:
+            log.exception("cleanup failed")
+        time.sleep(CLEANUP_INTERVAL_MINUTES * 60)
+
+
+def free_gb() -> float:
+    return shutil.disk_usage(DOWNLOAD_DIR).free / 1024 ** 3
 
 
 # ===== 動画情報の解析 =====
@@ -222,6 +257,8 @@ def health():
         "yt_dlp_version": yt_dlp.version.__version__,
         "active_jobs": sum(s in ACTIVE_STATUSES for s in statuses),  # 更新スクリプトが使う
         "queued_jobs": statuses.count("queued"),
+        "free_gb": round(free_gb(), 1),
+        "retention_hours": RETENTION_HOURS,
     }
 
 
@@ -455,17 +492,24 @@ def run_job(job_id: str, req: DownloadRequest, url: str, opts: dict):
 
             if len(files) == 1:
                 output = files[0]
+                if output.parent != job_dir:  # チャプターが1つだけ、などでサブフォルダ内にある場合
+                    output = output.rename(job_dir / output.name)
             else:
                 name = sanitize_filename((info or {}).get("title") or "download") or "download"
                 output = job_dir / f"{name}.zip"
                 with zipfile.ZipFile(output, "w", zipfile.ZIP_STORED) as z:  # 動画は圧縮済みなので無圧縮でまとめる
                     for f in files:
                         z.write(f, f.relative_to(job_dir))
+            # 受け渡すファイル以外(zip化した元ファイル、分割前の動画、作業用ファイル)は消す
+            for p in list(job_dir.iterdir()):
+                if p != output:
+                    remove_path(p)
 
             with jobs_lock:
                 jobs[job_id] |= {
                     "status": "done", "progress": 100, "file": str(output),
                     "count": len(files), "size": output.stat().st_size,
+                    "expires": time.time() + RETENTION_HOURS * 3600,  # 画面に「○時まで保存できます」と出す
                 }
             log.info(
                 "[%s] done: %s (%d files, %.1fMB, %ds)",
@@ -474,6 +518,7 @@ def run_job(job_id: str, req: DownloadRequest, url: str, opts: dict):
         except Exception as e:
             msg = str(e).replace("ERROR: ", "", 1)
             blocked = looks_blocked(msg)
+            remove_path(job_dir)  # 途中までのファイルは受け取れないので、すぐ消す
             with jobs_lock:
                 jobs[job_id] |= {"status": "error", "error": msg, "blocked": blocked}
             log.error("[%s] failed%s after %ds: %s", job_id, " (BLOCKED?)" if blocked else "", time.time() - started, msg)
@@ -495,7 +540,12 @@ def download(req: DownloadRequest):
     if req.split_chapters and has_range:
         raise HTTPException(400, "区間指定とチャプター分割は同時に使えません")
 
-    cleanup_old_jobs()
+    # --- 空き容量チェック(VPS のディスクが一杯になると他のサイトも止まるため) ---
+    if free_gb() < MIN_FREE_GB:
+        cleanup_old_jobs()
+        if free_gb() < MIN_FREE_GB:
+            log.warning("rejected (low disk: %.1fGB free): %s", free_gb(), url)
+            raise HTTPException(507, "サーバーの空き容量が不足しています。しばらく待ってからもう一度お試しください")
 
     # --- 混雑チェック(実行中 + 順番待ちが上限を超えたら受け付けない) ---
     with jobs_lock:
@@ -546,5 +596,8 @@ def job_file(job_id: str):
         raise HTTPException(404, "ファイルは保存期間を過ぎたため削除されました")
     return FileResponse(path, filename=path.name)
 
+
+# 起動時に1回、その後は一定間隔で古いファイルを掃除する
+threading.Thread(target=cleanup_loop, daemon=True, name="cleanup").start()
 
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
