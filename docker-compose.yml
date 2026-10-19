@@ -1,0 +1,18 @@
+name: my-ytdl
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8083:8000"
+    volumes:
+      - ./downloads:/downloads
+    environment:
+      - MAX_CONCURRENT_JOBS=2   # 同時に動かすダウンロード数
+      - MAX_QUEUED_JOBS=5       # 順番待ちの上限
+    restart: unless-stopped
+    # ログが増えすぎないよう、10MB × 3ファイルまでに制限
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

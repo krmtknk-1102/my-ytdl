@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Ytdl - YouTubeかんたんダウンロード</title>
+<link rel="stylesheet" href="style.css">
+<script>
+  // 表示前にテーマを適用し、切り替え時のチラつきを防ぐ
+  try {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark" || saved === "light") {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  } catch {}
+</script>
+</head>
+<body>
+<main class="container">
+  <div class="header-row">
+    <div>
+      <h1>My Ytdl</h1>
+      <p class="subtitle">YouTubeかんたんダウンロード</p>
+    </div>
+    <button type="button" id="themeToggle" aria-label="ダークモード切り替え" title="ダークモード切り替え">◐</button>
+  </div>
+
+  <!-- ① URL入力とチェック -->
+  <form id="checkForm" class="url-row">
+    <input type="text" id="url" placeholder="YouTubeのURLを貼り付け" autocomplete="off" required>
+    <button type="submit" id="checkBtn">チェック</button>
+  </form>
+
+  <div id="log" class="status">URLを貼り付けて「チェック」を押してください。</div>
+  <progress id="bar" max="100" value="0" hidden></progress>
+
+  <!-- ② 動画情報とオプション(チェック成功後に表示) -->
+  <section id="result" class="card" hidden>
+    <div class="media">
+      <img id="thumb" alt="" loading="lazy">
+      <div>
+        <h2 id="title"></h2>
+        <p id="meta" class="muted"></p>
+      </div>
+    </div>
+
+    <form id="dlForm">
+      <div class="segmented" role="radiogroup" aria-label="種類">
+        <label><input type="radio" name="mode" value="video" checked><span>動画</span></label>
+        <label><input type="radio" name="mode" value="audio"><span>音声のみ</span></label>
+      </div>
+
+      <!-- 動画のオプション -->
+      <div id="videoOpts" class="opts">
+        <label class="field">
+          <span>画質</span>
+          <select id="quality"></select>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="compat" checked>
+          <span>互換性優先(どの機器でも再生しやすい形式)</span>
+        </label>
+        <p class="hint">オフにすると、より高画質になることがありますが、古いスマホやテレビで再生できない場合があります。オンのときは最大1080p程度になります。</p>
+      </div>
+
+      <!-- 音声のオプション -->
+      <div id="audioOpts" class="opts" hidden>
+        <label class="field">
+          <span>形式</span>
+          <select id="audioFormat">
+            <option value="mp3">mp3(どこでも再生できる)</option>
+            <option value="m4a">m4a(変換なしで速い・iPhone向き)</option>
+          </select>
+        </label>
+        <label class="field" id="audioQualityField">
+          <span>音質</span>
+          <select id="audioQuality">
+            <option value="128">128kbps(小さめ)</option>
+            <option value="192" selected>192kbps(標準)</option>
+            <option value="320">320kbps(高音質)</option>
+          </select>
+        </label>
+        <p class="hint" id="audioSize"></p>
+      </div>
+
+      <!-- 詳細オプション -->
+      <details class="advanced">
+        <summary>詳細オプション</summary>
+
+        <div id="playlistBox" hidden>
+          <label class="check">
+            <input type="checkbox" id="playlist">
+            <span id="playlistLabel">再生リストをまとめてダウンロード</span>
+          </label>
+          <p class="hint" id="playlistHint"></p>
+        </div>
+
+        <div class="field" id="subtitleField">
+          <span>字幕(動画に埋め込み)</span>
+          <div class="inline-checks">
+            <label class="check"><input type="checkbox" name="sub" value="ja"><span id="subJaLabel">日本語</span></label>
+            <label class="check"><input type="checkbox" name="sub" value="en"><span id="subEnLabel">英語</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>区間を指定(一部分だけ保存)</span>
+          <div class="time-range">
+            <input type="text" id="start" placeholder="開始 例 1:30" inputmode="numeric">
+            <span>〜</span>
+            <input type="text" id="end" placeholder="終了 例 3:00" inputmode="numeric">
+          </div>
+          <p class="hint">空欄なら最初から/最後まで。指定位置で正確に切るため、少し時間がかかります。</p>
+        </div>
+
+        <label class="check">
+          <input type="checkbox" id="splitChapters">
+          <span id="chaptersLabel">チャプターごとに別ファイルに分割</span>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="sponsorblock">
+          <span>動画内の宣伝・チャンネル登録のお願いをカット(SponsorBlock)</span>
+        </label>
+        <p class="hint">視聴者の投稿データがある動画のみ有効です。複数ファイルになる場合は zip でまとめて保存します。</p>
+      </details>
+
+      <button type="submit" id="dlBtn" class="primary wide">ダウンロード</button>
+    </form>
+  </section>
+
+  <p class="version" id="ver"></p>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
