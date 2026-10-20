@@ -1,4 +1,5 @@
 FROM python:3.12-slim
+LABEL app=my-ytdl
 
 # ffmpeg: 映像と音声の結合、mp3変換
 RUN apt-get update \

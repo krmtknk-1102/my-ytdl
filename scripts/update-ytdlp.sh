@@ -16,8 +16,8 @@ fi
 
 echo "$(now) rebuilding to update yt-dlp"
 # ビルドに失敗したときは、今のコンテナをそのまま動かし続ける
-if docker compose build --build-arg YTDLP_REFRESH="$(date +%Y%m%d%H%M%S)" && docker compose up -d; then
-  docker image prune -f > /dev/null   # 置き換わった古いイメージを削除
+if docker compose build -q --build-arg YTDLP_REFRESH="$(date +%Y%m%d%H%M%S)" && docker compose up -d; then
+  docker image prune -f --filter "label=app=my-ytdl" > /dev/null   # my-ytdl の古いイメージだけ削除
   docker builder prune -f --filter until=168h > /dev/null
   version=$(curl -fsS -m 10 --retry 5 --retry-connrefused --retry-delay 2 "http://127.0.0.1:${PORT}/api/health" \
     | sed -n 's/.*"yt_dlp_version":"\([^"]*\)".*/\1/p')
